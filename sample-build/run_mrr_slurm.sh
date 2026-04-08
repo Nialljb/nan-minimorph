@@ -1,0 +1,80 @@
+#!/bin/bash
+#SBATCH --job-name=minimorph_processing
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=24G
+#SBATCH --time=03:00:00
+#SBATCH --output=minimorph_%j.out
+#SBATCH --error=minimorph_%j.err
+#
+# Example SLURM submission script for MiniMORPH processing
+#
+# Usage: sbatch run_minimorph_slurm.sh
+#
+# Make sure to modify the paths and parameters below for your specific use case
+#
+
+# Load Singularity module (adjust for your HPC environment)
+module load singularity
+
+# Define paths - MODIFY THESE FOR YOUR ENVIRONMENT
+MINIMORPH_IMAGE="/home/${USER}/cortex/modules/minimorph.sif"
+INPUT_DIR="/data/bids_dataset"
+OUTPUT_DIR="/results/minimorph_output"
+WORK_DIR="/tmp/minimorph_work_${SLURM_JOB_ID}"
+
+# Subject and session information - MODIFY FOR YOUR DATA
+SUBJECT="01"
+SESSION="01"
+# Age template - REQUIRED FOR MINIMORPH (3M, 6M, 12M, 18M, 24M)
+AGE_TEMPLATE="6M"
+
+# Input file path (adjust pattern as needed)
+INPUT_FILE="${INPUT_DIR}/sub-${SUBJECT}/ses-${SESSION}/anat/sub-${SUBJECT}_ses-${SESSION}_T2w.nii.gz"
+
+# Create output directory
+mkdir -p "${OUTPUT_DIR}"
+mkdir -p "${WORK_DIR}"
+
+echo "Starting MiniMORPH processing..."
+echo "Job ID: ${SLURM_JOB_ID}"
+echo "Subject: ${SUBJECT}"
+echo "Session: ${SESSION}"
+echo "Age template: ${AGE_TEMPLATE}"
+echo "Input: ${INPUT_FILE}"
+echo "Output: ${OUTPUT_DIR}"
+echo "Work directory: ${WORK_DIR}"
+
+# Check if input file exists
+if [[ ! -f "${INPUT_FILE}" ]]; then
+    echo "Error: Input file not found: ${INPUT_FILE}"
+    exit 1
+fi
+
+# Run MiniMORPH processing
+singularity exec \
+    --bind "${INPUT_DIR}:/input:ro" \
+    --bind "${OUTPUT_DIR}:/output:rw" \
+    --bind "${WORK_DIR}:/tmp/minimorph_work:rw" \
+    "${MINIMORPH_IMAGE}" \
+    minimorph \
+        --input "${INPUT_FILE}" \
+        --age "${AGE_TEMPLATE}" \
+        --output /output \
+        --work-dir /tmp/minimorph_work \
+        --subject-id "sub-${SUBJECT}_ses-${SESSION}" \
+        --verbose
+
+# Check if processing was successful
+if [[ $? -eq 0 ]]; then
+    echo "MiniMORPH processing completed successfully!"
+    echo "Output files:"
+    ls -la "${OUTPUT_DIR}/"
+else
+    echo "Error: MiniMORPH processing failed"
+    exit 1
+fi
+
+# Clean up work directory
+rm -rf "${WORK_DIR}"
+
+echo "Job completed!"

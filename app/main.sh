@@ -46,18 +46,33 @@ set -x
 input_file=$1
 age=$2
 
-# Define the paths
-FLYWHEEL_BASE=/flywheel/v0
-INPUT_DIR=$FLYWHEEL_BASE/input/
-WORK_DIR=$FLYWHEEL_BASE/work
-OUTPUT_DIR=$FLYWHEEL_BASE/output
-TEMPLATE_DIR=$FLYWHEEL_BASE/app/templates/${age}/
-CONTAINER='[flywheel/ants-segmentation]'
+# Define the paths - use environment variables or defaults
+MINIMORPH_BASE=${MINIMORPH_BASE:-/opt/minimorph}
+WORK_DIR=${WORK_DIR:-/tmp/minimorph_work}
+OUTPUT_DIR=${OUTPUT_DIR:-./output}
+TEMPLATE_DIR=$MINIMORPH_BASE/app/templates/${age}/
+CONTAINER='[minimorph]'
 template=${TEMPLATE_DIR}/template_${age}_degibbs_padded.nii.gz
 template_mask=${TEMPLATE_DIR}/brainMask.nii.gz
 
-echo "permissions"
-ls -ltra /flywheel/v0/
+# Create necessary directories
+mkdir -p "$WORK_DIR"
+mkdir -p "$OUTPUT_DIR"
+
+echo "Container base directory: $MINIMORPH_BASE"
+echo "Template directory: $TEMPLATE_DIR"
+echo "Work directory: $WORK_DIR"
+echo "Output directory: $OUTPUT_DIR"
+
+# Verify template directory exists
+if [[ ! -d "$TEMPLATE_DIR" ]]; then
+    echo "ERROR: Template directory not found: $TEMPLATE_DIR"
+    echo "Available age templates:"
+    ls -1 $MINIMORPH_BASE/app/templates/ 2>/dev/null || echo "No templates found"
+    exit 1
+fi
+
+ls -ltra $TEMPLATE_DIR
 
 ##############################################################################
 # Handle INPUT file

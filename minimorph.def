@@ -1,0 +1,106 @@
+Bootstrap: docker
+From: nialljb/freesurfer7.4.1-ants2.4-fsl
+
+%help
+    MiniMORPH - Infant brain segmentation pipeline for low-field MRI
+    
+    This container provides age-matched brain segmentation for infants aged 3-24 months.
+    Templates and processing tools are bundled within the container.
+    
+    Usage:
+        apptainer exec minimorph.sif minimorph --input <T2w_image> --age <3M|6M|12M|18M|24M> --output <output_dir>
+
+%labels
+    Author Chiara Casella, Niall Bourke, Johnny O Muircheartaigh
+    Version 1.0.0
+    Description Fast and sequence-adaptive whole-brain segmentation for infant MRI
+    
+%environment
+    export HOME=/root/
+    export MINIMORPH_BASE=/opt/minimorph
+    export PYTHONPATH="/opt/minimorph:$PYTHONPATH"
+    export PATH="/opt/minimorph/bin:$PATH"
+    
+    # FreeSurfer, ANTs, FSL environment (inherited from base image)
+    # FREESURFER_HOME, FSLDIR, ANTSPATH should be set in base image
+
+%files
+    # Copy the entire minimorph application from current directory
+    ./ /opt/minimorph/
+    
+%post
+    # Create necessary directories
+    mkdir -p /opt/minimorph/bin
+    mkdir -p /opt/minimorph/work
+    mkdir -p /tmp/minimorph_work
+    
+    # Install Python dependencies (removing Flywheel-specific ones)
+    pip3 install nibabel pandas matplotlib pillow
+    
+    # Make scripts executable  
+    chmod +x /opt/minimorph/app/main.sh
+    chmod +x /opt/minimorph/utils/*.py
+    chmod +x /opt/minimorph/*.py
+    
+    # Verify templates are bundled correctly
+    echo "Verifying template installation..."
+    for age in 3M 6M 12M 18M 24M; do
+        template_dir="/opt/minimorph/app/templates/${age}"
+        if [ ! -d "$template_dir" ]; then
+            echo "ERROR: Template directory missing: $template_dir"
+            exit 1
+        fi
+        # Check for required template files
+        required_files=(
+            "template_${age}_degibbs_padded.nii.gz"
+            "brainMask.nii.gz"
+            "prior1_scale.nii.gz"
+            "prior2_scale.nii.gz" 
+            "prior3_scale.nii.gz"
+            "ventricles_mask_0p55mm.nii.gz"
+            "BCP_mask_padded_0p55mm.nii.gz"
+            "cerebellum_mask_dilate_clean_padded_0p55mm.nii.gz"
+            "callosum_mask_relabelled_padded_0p55mm.nii.gz"
+            "brainstem_mask_dilate_clean_padded_0p55mm.nii.gz"
+        )
+        for file in "${required_files[@]}"; do
+            if [ ! -f "$template_dir/$file" ]; then
+                echo "ERROR: Required template file missing: $template_dir/$file"
+                exit 1
+            fi
+        done
+        echo "Template $age: OK"
+    done
+    
+    # Verify core tools are available
+    echo "Verifying tool availability..."
+    which antsRegistration || (echo "ERROR: ANTs not found" && exit 1)
+    which fslmaths || (echo "ERROR: FSL not found" && exit 1) 
+    which mri_synthstrip || (echo "ERROR: FreeSurfer not found" && exit 1)
+    echo "All tools verified successfully"
+    
+%runscript
+    # Default entry point
+    exec python3 /opt/minimorph/minimorph_cli.py "$@"
+    
+%test
+    # Basic functionality test
+    echo "Testing MiniMORPH container..."
+    
+    # Check Python import
+    python3 -c "import nibabel, pandas, matplotlib; print('Python dependencies OK')"
+    
+    # Check template accessibility
+    for age in 3M 6M 12M 18M 24M; do
+        template="/opt/minimorph/app/templates/${age}/template_${age}_degibbs_padded.nii.gz"
+        if [ ! -f "$template" ]; then
+            echo "ERROR: Cannot access template: $template"
+            exit 1
+        fi
+    done
+    
+    # Check tools
+    antsRegistration --help > /dev/null || exit 1
+    fslmaths --help > /dev/null || exit 1
+    
+    echo "Container tests passed!"
