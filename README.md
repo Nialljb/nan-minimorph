@@ -139,7 +139,10 @@ The MiniMORPH pipeline performs:
 - *Tissue priors:* Baby Connectome Project (BCP) atlas registration
 - *Anatomical masks:* Manual delineation + Penn-CHOP Infant Brain Atlas
 
-**Citation:** Fast and sequence-adaptive whole-brain segmentation using parametric Bayesian modeling. O. Puonti, J.E. Iglesias, K. Van Leemput. NeuroImage, 143, 235-249, 2016.
+**Citation:** 
+MiniMORPH: A Morphometry Pipeline for Low-Field MRI in Infants
+ View ORCID ProfileChiara Casella, Aksel Leknes, Niall J. Bourke, Ayo Zahra, Daniel Cromb, Dora Barnes, Alejandra Martin Segura, Flora Silvester, Vanessa Kyriakopoulou, Daniel Elijah Scheiene, Simone R. Williams, Layla E. Bradford, Joanitta Murungi,  View ORCID ProfileSteven C. R. Williams, Sean C. L. Deoni, Victoria Nankabirwa, Kirsten A. Donald, Muriel M. K. Bruchhage,  View ORCID ProfileJonathan O’Muircheartaigh
+doi: https://doi.org/10.1101/2025.07.01.25330469
 
 ## Troubleshooting
 
