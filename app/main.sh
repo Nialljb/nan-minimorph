@@ -1,78 +1,67 @@
 #!/bin/sh
 set -x
 
-# Module: Pipeline for segmenting infant brain images locally
+```
+# Module: Pipeline for segmenting infant brain images on Flywheel
 # Author: Chiara Casella, Niall Bourke
 
+
 # Overview:
-# This script is designed to segment infant brain images. The pipeline consists of the following steps:
+# This script is designed to segment infant brain images on Flywheel. The pipeline consists of the following steps:
 # 1. Register the input image to an age-specific template image
 # 2. Apply the resulting transformations to predefined segmentation priors and segmentation masks (template space), to bring them into the subject's native space
 # 3. Segment the input image in native space using ANTs Atropos, with three priors (tissue, CSF, skull)
 # 4. Refine the resulting segmentation posteriors to separate the ventricles from the remaining CSF, and the subcortical grey matter areas from the rest of the tissue
 # 5. Extract volume estimates from the segmentations
 
+#This pipeline should be used with the output of mrr-axireg.
+
 #The Final_segmentation_atlas.nii.gz includes the following labels: supratentorial tissue, supratentorial csf, ventricles, cerebellum, cerebellum csf, brainstem, brainstem_csf, left_thalamus, 
 #left_caudate, left_putamen,	left_globus_pallidus,	right_thalamus,	right_caudate,	right_putamen, right_globus_pallidus
 
 #The Final_segmentation_atlas_with_callosum.nii.gz includes all the labels above, as well as the following callosal parcellations: posterior, mid-posterior, central, mid-anterior, anterior
 
+#Brainstem and brainstem CSF labels were additionally created as exclusion regions because coverage of the inferior field of view was inconsistent across scans. 
+#Excluding these regions reduces the risk of introducing segmentation artefacts or bias related to variable brainstem coverage rather than true anatomical differences.
+
 # Usage:
-# This script takes two inputs:
+# This script is designed to be run as a Flywheel Gear. The script takes two inputs:
 # 1. The input image to segment
 # 2. The age of the template to use in months (e.g. 3, 6, 12, 24, 48, 72)
 
 # The script assumes that the input image is in NIfTI format. The script outputs the segmentations in native space.
+
 
 # NOTES:
 # Need txt output of volumes - I have added commands to extract volumes
 # clean up intermediate files - I have saved final files to $OUTPUT_DIR, and intermediate files to $WORK_DIR
 # slicer bet & segmentations in native space (-A) - added these too
 
-
-echo "Script started at: $(date)"
-start_time=$(date +%s)
+```
 
 # Initialise the FSL environment
 . ${FSLDIR}/etc/fslconf/fsl.sh
 
-
-
-# Set the number of threads for parallel processing
-export OMP_NUM_THREADS=6 # Or fewer, to see if it makes a difference
-export TF_NUM_INTEROP_THREADS=6 # Or fewer
-export TF_NUM_INTRAOP_THREADS=6 # Or fewer
-
-
 #Define inputs
-# INPUT_DIR=$1
+input_file=$1
 age=$2
 
-# Define the paths - UPDATED FOR LOCAL EXECUTION
-APP_BASE=/app
-INPUT_DIR=$APP_BASE/input/
-WORK_DIR=$APP_BASE/work
-OUTPUT_DIR=$APP_BASE/output
-TEMPLATE_DIR=$APP_BASE/templates/${age}/
-CONTAINER='[local/ants-segmentation]'
+# Define the paths
+FLYWHEEL_BASE=/flywheel/v0
+INPUT_DIR=$FLYWHEEL_BASE/input/
+WORK_DIR=$FLYWHEEL_BASE/work
+OUTPUT_DIR=$FLYWHEEL_BASE/output
+TEMPLATE_DIR=$FLYWHEEL_BASE/app/templates/${age}/
+CONTAINER='[flywheel/ants-segmentation]'
 template=${TEMPLATE_DIR}/template_${age}_degibbs_padded.nii.gz
-
-# Create work directory if it doesn't exist
-mkdir -p $WORK_DIR
+template_mask=${TEMPLATE_DIR}/brainMask.nii.gz
 
 echo "permissions"
-ls -ltra /app/
+ls -ltra /flywheel/v0/
 
 ##############################################################################
 # Handle INPUT file
 # Check that input file exists
-input_file=$(find "${INPUT_DIR}" -maxdepth 1 -name "*.nii" -o -name "*.nii.gz" | head -n 1)
-if [[ -n "$input_file" ]]; then
-    echo "Found: $input_file"
-else
-    echo "No .nii or .nii.gz files found"
-    exit 1
-fi
 
 if [[ -e $input_file ]]; then
   echo "${CONTAINER}  Input file found: ${input_file}"
@@ -100,13 +89,17 @@ echo -e "\n --- Step 1: Register image to template --- "
 # Define outputs in the following steps
 native_bet_image=${WORK_DIR}/native_bet_image.nii.gz
 native_brain_mask=${WORK_DIR}/native_brain_mask.nii.gz
+input_file_DN=${WORK_DIR}/DN.nii.gz
+input_file_BC=${WORK_DIR}/DN_BC.nii.gz
 
-# #bet image to help with registration to template
-# mri_synthstrip -i ${input_file} -o ${native_bet_image} -m ${native_brain_mask} -b 4
-# sync
-# echo "BET image and mask created"
-# ls ${native_bet_image} ${native_brain_mask}
-# echo "***"  
+#bet image to help with registration to template
+DenoiseImage -i ${input_file} -o ${input_file_DN}
+N4BiasFieldCorrection -i ${input_file_DN} -o ${input_file_BC}
+mri_synthstrip -i ${input_file_BC} -o ${native_bet_image} -m ${native_brain_mask} -b 2
+sync
+echo "BET image and mask created"
+ls ${native_bet_image} ${native_brain_mask}
+echo "***"  
 
 sleep 3
 
@@ -114,7 +107,31 @@ sleep 3
 echo "Registering native BET image to template brain"
 echo -e "\n Run SyN registration"
 
-antsRegistrationSyN.sh -d 3 -t 's' -f ${template} -m ${native_bet_image} -j 1 -p 'f' -o ${WORK_DIR}/bet_ -n 4
+#antsRegistrationSyN.sh -d 3 -t 's' -f ${template} -m ${native_bet_image} -j 1 -p 'f' -o ${WORK_DIR}/bet_ -n 4
+
+#Optimized registration step
+ants antsRegistration -d 3 --float 1 \ 
+--output [${WORK_DIR}/bet_,${WORK_DIR}/bet_Warped.nii.gz] \ 
+--use-histogram-matching 1 \ 
+--initial-moving-transform [${template},${native_bet_image},1] \ 
+--transform Rigid[0.1] \ 
+--metric MI[${template},${native_bet_image},1,64,Regular,0.25] \ 
+--convergence [1000x1000x500x250,1e-6,10] \ 
+--shrink-factors 8x6x4x2 \ 
+--smoothing-sigmas 4x3x2x1mm \ 
+--transform Affine[0.1] \ 
+--metric MI[${template},${native_bet_image},1,64,Regular,0.25] \ 
+--convergence [1000x1000x500x250,1e-6,10] \ 
+--shrink-factors 8x6x4x2 \ 
+--smoothing-sigmas 4x3x2x1mm \ 
+--transform SyN[0.1, 3, 0] \ 
+--metric CC[${template},${native_bet_image},1,4] \ 
+--convergence [100x100x70x50,1e-6,10] \ 
+--shrink-factors 6x4x2x1 \ 
+--smoothing-sigmas 3x2x1x0mm \ 
+--masks [${template_mask},${native_brain_mask}] \ 
+--interpolation BSpline
+
 sync
 sleep 3
 echo "antsRegistrationSyN done"
@@ -129,9 +146,9 @@ INVERSE_WARP=$(ls ${WORK_DIR}/bet*InverseWarp.nii.gz)
 # Transform priors (template space) to each subject's native space
 echo "Transforming priors to native space for segmentation"
 items=(
-    "${TEMPLATE_DIR}/prior1_scale_0p55mm.nii.gz"
-    "${TEMPLATE_DIR}/prior2_scale_0p55mm.nii.gz"
-    "${TEMPLATE_DIR}/prior3_scale_0p55mm.nii.gz"
+    "${TEMPLATE_DIR}/prior1_scale.nii.gz"
+    "${TEMPLATE_DIR}/prior2_scale.nii.gz"
+    "${TEMPLATE_DIR}/prior3_scale.nii.gz"
 )
 
 for item in "${items[@]}"; do
@@ -169,9 +186,15 @@ done
 
 # Run Atropos
 echo -e "\n --- Step 3: Segmenting images --- "
-fslmaths ${native_brain_mask} -dilM ${WORK_DIR}/native_brain_mask_dil.nii.gz
+fslmaths ${native_brain_mask} -dilM -dilM ${WORK_DIR}/native_brain_mask_dil.nii.gz
 sync
-antsAtroposN4.sh -d 3 -a ${input_file} -x ${WORK_DIR}/native_brain_mask_dil.nii.gz -p ${WORK_DIR}/prior%d_scale_0p55mm.nii.gz -c 3 -y 1 -w 0.5 -o ${WORK_DIR}/ants_atropos_
+antsAtroposN4.sh -d 3 \
+-a ${input_file} \
+-x ${WORK_DIR}/native_brain_mask_dil.nii.gz \
+-p ${WORK_DIR}/prior%d_scale.nii.gz -c 3 -y 1 -y 2 \
+-w 0.3 
+-r '[0.4,1x1x1]' \
+-o ${WORK_DIR}/ants_atropos_
 sync
 echo -e "\n Past Atropos segmentation step "
 
@@ -181,6 +204,7 @@ sleep 3
 Posterior1=${WORK_DIR}/ants_atropos_SegmentationPosteriors1.nii.gz
 Posterior2=${WORK_DIR}/ants_atropos_SegmentationPosteriors2.nii.gz
 Posterior3=${WORK_DIR}/ants_atropos_SegmentationPosteriors3.nii.gz
+
 
 echo -e "\n --- Step 4: Hello MDR, time to refine segmentations --- "
 #Refine segmentations to extract ventricles
@@ -259,6 +283,7 @@ pngappend ${WORK_DIR}/slicer_bet.png - ${WORK_DIR}/slicer_seg1.png ${WORK_DIR}/m
 slicer ${WORK_DIR}/Final_segmentation_atlas_with_callosum.nii.gz ${WORK_DIR}/Final_segmentation_atlas_with_callosum.nii.gz -a ${WORK_DIR}/slicer_seg1.png
 pngappend ${WORK_DIR}/slicer_bet.png - ${WORK_DIR}/slicer_seg1.png ${WORK_DIR}/montage_final_segmentation_atlas_with_callosum.png
 
+
 # Extract volumes of segmentations
 output_csv=${WORK_DIR}/All_volumes.csv
 # Initialize the master CSV file with headers
@@ -267,49 +292,44 @@ echo "template_age supratentorial_tissue supratentorial_csf ventricles cerebellu
 atlas=${WORK_DIR}/Final_segmentation_atlas_with_callosum.nii.gz
 
 # Extract volumes for each label
-supratentorial_general=$(fslstats ${atlas} -l 0.5 -u 1.5 -V | awk '{print $2}')
-supratentorial_csf=$(fslstats ${atlas} -l 1.5 -u 2.5 -V | awk '{print $2}')
-ventricles=$(fslstats ${atlas} -l 2.5 -u 3.5 -V | awk '{print $2}')
-cerebellum=$(fslstats ${atlas} -l 30.5 -u 31.5 -V | awk '{print $2}')
-cerebellum_csf=$(fslstats ${atlas} -l 31.5 -u 32.5 -V | awk '{print $2}')
-brainstem=$(fslstats ${atlas} -l 40.5 -u 41.5 -V | awk '{print $2}')
-brainstem_csf=$(fslstats ${atlas} -l 41.5 -u 42.5 -V | awk '{print $2}')
-left_thalamus=$(fslstats ${atlas} -l 16.5 -u 17.5 -V | awk '{print $2}')
-left_caudate=$(fslstats ${atlas} -l 17.5 -u 18.5 -V | awk '{print $2}')
-left_putamen=$(fslstats ${atlas} -l 18.5 -u 19.5 -V | awk '{print $2}')
-left_globus_pallidus=$(fslstats ${atlas} -l 19.5 -u 20.5 -V | awk '{print $2}')
-right_thalamus=$(fslstats ${atlas} -l 26.5 -u 27.5 -V | awk '{print $2}')
-right_caudate=$(fslstats ${atlas} -l 27.5 -u 28.5 -V | awk '{print $2}')
-right_putamen=$(fslstats ${atlas} -l 28.5 -u 29.5 -V | awk '{print $2}')
-right_globus_pallidus=$(fslstats ${atlas} -l 29.5 -u 30.5 -V | awk '{print $2}')
-posterior_callosum=$(fslstats ${atlas} -l 7.5 -u 8.5 -V | awk '{print $2}')
-mid_posterior_callosum=$(fslstats ${atlas} -l 8.5 -u 9.5 -V | awk '{print $2}')
-central_callosum=$(fslstats ${atlas} -l 9.5 -u 10.5 -V | awk '{print $2}')
-mid_anterior_callosum=$(fslstats ${atlas} -l 10.5 -u 11.5 -V | awk '{print $2}')
-anterior_callosum=$(fslstats ${atlas} -l 11.5 -u 12.5 -V | awk '{print $2}')
+            supratentorial_general=$(fslstats ${atlas} -l 0.5 -u 1.5 -V | awk '{print $2}')
+            supratentorial_csf=$(fslstats ${atlas} -l 1.5 -u 2.5 -V | awk '{print $2}')
+            ventricles=$(fslstats ${atlas} -l 2.5 -u 3.5 -V | awk '{print $2}')
+            cerebellum=$(fslstats ${atlas} -l 30.5 -u 31.5 -V | awk '{print $2}')
+            cerebellum_csf=$(fslstats ${atlas} -l 31.5 -u 32.5 -V | awk '{print $2}')
+            brainstem=$(fslstats ${atlas} -l 40.5 -u 41.5 -V | awk '{print $2}')
+            brainstem_csf=$(fslstats ${atlas} -l 41.5 -u 42.5 -V | awk '{print $2}')
+            left_thalamus=$(fslstats ${atlas} -l 16.5 -u 17.5 -V | awk '{print $2}')
+            left_caudate=$(fslstats ${atlas} -l 17.5 -u 18.5 -V | awk '{print $2}')
+            left_putamen=$(fslstats ${atlas} -l 18.5 -u 19.5 -V | awk '{print $2}')
+            left_globus_pallidus=$(fslstats ${atlas} -l 19.5 -u 20.5 -V | awk '{print $2}')
+            right_thalamus=$(fslstats ${atlas} -l 26.5 -u 27.5 -V | awk '{print $2}')
+            right_caudate=$(fslstats ${atlas} -l 27.5 -u 28.5 -V | awk '{print $2}')
+            right_putamen=$(fslstats ${atlas} -l 28.5 -u 29.5 -V | awk '{print $2}')
+            right_globus_pallidus=$(fslstats ${atlas} -l 29.5 -u 30.5 -V | awk '{print $2}')
+            posterior_callosum=$(fslstats ${atlas} -l 7.5 -u 8.5 -V | awk '{print $2}')
+            mid_posterior_callosum=$(fslstats ${atlas} -l 8.5 -u 9.5 -V | awk '{print $2}')
+            central_callosum=$(fslstats ${atlas} -l 9.5 -u 10.5 -V | awk '{print $2}')
+            mid_anterior_callosum=$(fslstats ${atlas} -l 10.5 -u 11.5 -V | awk '{print $2}')
+            anterior_callosum=$(fslstats ${atlas} -l 11.5 -u 12.5 -V | awk '{print $2}')
 
-# Calculate supratentorial tissue volume (include all relevant regions)
-supratentorial_tissue=$(echo "$supratentorial_general + $left_thalamus + $left_caudate + $left_putamen + $left_globus_pallidus + $right_thalamus + $right_caudate + $right_putamen + $right_globus_pallidus + $posterior_callosum + $mid_posterior_callosum + $central_callosum + $mid_anterior_callosum + $anterior_callosum" | bc)
+            # Calculate supratentorial tissue volume (include all relevant regions)
+            supratentorial_tissue=$(echo "$supratentorial_general + $left_thalamus + $left_caudate + $left_putamen + $left_globus_pallidus + $right_thalamus + $right_caudate + $right_putamen + $right_globus_pallidus + $posterior_callosum + $mid_posterior_callosum + $central_callosum + $mid_anterior_callosum + $anterior_callosum" | bc)
 
-# Calculate ICV
-icv=$(echo "$supratentorial_tissue + $supratentorial_csf + $cerebellum + $cerebellum_csf + $brainstem + $brainstem_csf" | bc)
+            # Calculate ICV
+            icv=$(echo "$supratentorial_tissue + $supratentorial_csf + $cerebellum + $cerebellum_csf + $brainstem + $brainstem_csf" | bc)
+
 
 echo "$age $supratentorial_tissue $supratentorial_csf $ventricles $cerebellum $cerebellum_csf $brainstem $brainstem_csf $left_thalamus $left_caudate $left_putamen $left_globus_pallidus $right_thalamus $right_caudate $right_putamen $right_globus_pallidus $posterior_callosum $mid_posterior_callosum $central_callosum $mid_anterior_callosum $anterior_callosum $icv" >> "$output_csv"
 
 echo "Volumes extracted and saved to $output_csv"
 
-# Copy final outputs to output directory
-echo -e "\n --- Step 7: Copy final outputs --- "
-# cp ${WORK_DIR}/Final_segmentation_atlas.nii.gz ${OUTPUT_DIR}/
-cp ${WORK_DIR}/Final_segmentation_atlas_with_callosum.nii.gz ${OUTPUT_DIR}/
-cp ${WORK_DIR}/All_volumes.csv ${OUTPUT_DIR}/
-# cp ${WORK_DIR}/montage_final_segmentation_atlas.png ${OUTPUT_DIR}/
-cp ${WORK_DIR}/montage_final_segmentation_atlas_with_callosum.png ${OUTPUT_DIR}/
 
-echo "Final outputs copied to ${OUTPUT_DIR}"
-echo "Processing complete!"
 
-end_time=$(date +%s)
-duration=$((end_time - start_time))
-echo "Script completed at: $(date)"
-echo "Total duration: ${duration} seconds ($((duration/60)) minutes)"
+
+
+
+
+
+
+

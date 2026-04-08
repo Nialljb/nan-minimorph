@@ -1,0 +1,109 @@
+{
+  "author": "Chiara Casella, Niall Bourke, Johnny O Muircheartaigh ",
+  "cite": "Sean C.L. Deoni, Muriel M.K. Bruchhage, Jennifer Beauchemin, Alexandra Volpe, Viren D'Sa, Matthew Huentelman, Steven C.R. Williams,Accessible pediatric neuroimaging using a low field strength MRI scanner, NeuroImage, Volume 238, 2021, 118273, ISSN 1053-8119, https://doi.org/10.1016/j.neuroimage.2021.118273. (https://www.sciencedirect.com/science/article/pii/S1053811921005498);",
+  "command": "python3 /flywheel/v0/run.py",
+  "config": {
+    "age": {
+      "default": "None",
+      "description": "Age of the subject (Months).",
+      "enum": [
+        "None",
+        "3M",
+        "6M",
+        "12M",
+        "18M",
+        "24M"
+      ],
+      "type": "string"
+    }
+  },
+  "custom": {
+    "analysis-level": "participant",
+    "flywheel": {
+      "classification": {
+        "components": [
+          "FreeSurfer"
+        ],
+        "keywords": [
+          "segmentation",
+          "volume",
+          "template"
+        ],
+        "modality": [
+          "MR"
+        ],
+        "type": [
+          "nifti"
+        ]
+      },
+      "suite": "UNITY Apps"
+    },
+    "gear-builder": {
+      "category": "analysis",
+      "image": "flywheel/minimorph:1.0.20"
+    },
+    "kcl-app-binary": "app/main.sh",
+    "kcl-app-modalities": [
+      "anat"
+    ],
+    "license": {
+      "dependencies": [
+        {
+          "name": "Other",
+          "url": "/usr/local/freesurfer/license.txt"
+        }
+      ],
+      "main": {
+        "name": "",
+        "url": ""
+      },
+      "non-commercial-use-only": false
+    }
+  },
+  "description": "This script is designed to run the ANTs pipeline for segmenting infant brain images on Flywheel. The pipeline consists of the following steps: \n 1. Register segmentation priors (tissue and CSF) and segmentation masks (ventricles, subcortical GM and collosal segments) to native space via an age-specific template \n 2. Segment the input image in template space using ANTs Atropos and fsl. *Templates included up to 24 months of age*",
+  "environment": {
+    "CONDA_DIR": "/opt/conda",
+    "FLYWHEEL": "/flywheel/v0",
+    "OS": "Linux",
+    "SUBJECTS_DIR": "/usr/local/freesurfer/subjects",
+    "FSLDIR": "/opt/conda",
+    "MNI_DIR": "/usr/local/freesurfer/mni",
+    "FSFAST_HOME": "/usr/local/freesurfer/fsfast",
+    "FSF_OUTPUT_FORMAT": "nii.gz",
+    "container": "oci",
+    "LOCAL_DIR": "/usr/local/freesurfer/local",
+    "FMRI_ANALYSIS_DIR": "/usr/local/freesurfer/fsfast",
+    "PWD": "/flywheel/v0",
+    "FUNCTIONALS_DIR": "/usr/local/freesurfer/sessions",
+    "FREESURFER_HOME": "/usr/local/freesurfer",
+    "MNI_PERL5LIB": "/usr/local/freesurfer/mni/share/perl5",
+    "MINC_BIN_DIR": "/usr/local/freesurfer/mni/bin",
+    "PERL5LIB": "/usr/local/freesurfer/mni/share/perl5",
+    "SHLVL": "1",
+    "FS_OVERRIDE": "0",
+    "PATH": "/opt/conda/bin:/usr/local/freesurfer/bin:/usr/local/freesurfer/fsfast/bin:/usr/local/freesurfer/tktools:/usr/local/freesurfer/mni/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "MINC_LIB_DIR": "/usr/local/freesurfer/mni/lib",
+    "MNI_DATAPATH": "/usr/local/freesurfer/mni/data",
+    "FREESURFER": "/usr/local/freesurfer",
+    "_": "/usr/bin/printenv",
+    "PYTHONPATH": "/flywheel/v0:"
+  },
+  "inputs": {
+    "api-key": {
+      "base": "api-key",
+      "read-only": true
+    },
+    "input": {
+      "base": "file",
+      "description": "input file",
+      "optional": false
+    }
+  },
+  "label": "MiniMORPH",
+  "license": "MIT",
+  "maintainer": "Niall Bourke <niall.bourke@kcl.ac.uk>",
+  "name": "minimorph",
+  "source": "https://github.com/UNITY-Physics/fw-minimorph",
+  "url": "https://github.com/UNITY-Physics/fw-minimorph",
+  "version": "1.0.20"
+}

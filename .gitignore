@@ -14,5 +14,5 @@ license.txt
 
 # large project files
 app/templates
-session
+app/DEPRICATED_templates
 

@@ -1,6 +1,0 @@
-docker pull freesurfer/synthstrip:latest
-
-docker run -it --rm \
-    -v /Users/nbourke/GD/atom/unity/fw-gears/local/local-minimorph/session:/data \
-    freesurfer/synthstrip:latest \
-    -i /data/5_ABCD_T2W_spc_vnav.nii.gz -o /data/stripped.nii.gz
